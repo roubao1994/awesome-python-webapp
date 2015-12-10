@@ -83,7 +83,7 @@ def _update(sql, *args):
 		cursor = _dbCtx.connection.cursor()
 		cursor.execute(sql, args)
 		r = cursor.rowcount
-		if _dbCtx.transactions == 0:
+		if _dbCtx.transaction == 0:
 			#no transactions 可以提交
 			logging.info('auto commit')
 			_dbCtx.connection.commit()
@@ -93,7 +93,7 @@ def _update(sql, *args):
 			cursor.close()
 
 def update(sql, *args):
-	return _udpate(sql, *args)
+	return _update(sql, *args)
 
 @with_connection
 def insert(table, **kw):
