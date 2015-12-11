@@ -4,9 +4,19 @@ import threading
 import logging
 import functools 
 from contextlib import contextmanager
+import time,uuid
 
 engine = None
 
+def next_id(t=None):
+    """
+    生成一个唯一id   由 当前时间 + 随机数（由伪随机数得来）拼接得到
+    """
+    if t is None:
+        t = time.time()
+    return '%015d%s000' % (int(t * 1000), uuid.uuid4().hex)
+
+    
 def create_engine(user,password,database,host='127.0.0.1',port=3306, **kw):
 	import mysql.connector
 	global engine
@@ -78,7 +88,7 @@ def _update(sql, *args):
 	global _dbCtx
 	cursor = None
 	sql = sql.replace('?', '%s')
-	logging.info('SQL: %s, ARGS: %s' %(sql, args))
+	logging.warning('SQL: %s, ARGS: %s' %(sql, args))
 	try:
 		cursor = _dbCtx.connection.cursor()
 		cursor.execute(sql, args)
@@ -110,8 +120,9 @@ def insert(table, **kw):
       ...
     IntegrityError: 1062 (23000): Duplicate entry '2000' for key 'PRIMARY'
     """
-	col,args = zip(*kw.iteritems())
+	cols,args = zip(*kw.iteritems())
 	sql = 'insert into `%s` (%s) values (%s)' % (table, ','.join(['`%s`' % col for col in cols]), ','.join(['?' for i in range(len(cols))]))
+	logging.warning("sql: %s" %sql)
 	return _update(sql,*args)
 
 class Dict(dict):

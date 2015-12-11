@@ -3,6 +3,8 @@
 import logging
 import db
 import time
+
+
 """
 orm模块设计的原因：
     1. 简化操作
@@ -32,6 +34,21 @@ orm模块设计的原因：
 """
 _triggers = frozenset(['pre_insert','pre_update','pre_delete'])
 
+def _gentable(table_name,mappings):
+    pk = None
+    sql = ['-- generating sql for table %s:' % table_name,'create table %s (' %table_name ]
+    for f in sorted(mappings.values(), lambda x,y: cmp(x._order, y._order)):
+        if not hasattr(f, 'ddl'):
+            raise StandardError('fidld %s has no ddl' %f)
+        ddl = f.ddl
+        nullable = f.nullable
+        if f.primary_key:
+            pk = f.name
+        sql.append(' `%s` %s, ' % (f.name, ddl) if nullable else ' `%s` %s not null,' % (f.name, ddl))
+        sql.append(' primary key (`%s`)' % pk)
+        sql.append(');')
+        return '\n'.join(sql)
+
 class Field(object):
     """
     保存数据库中的表的  字段属性
@@ -59,10 +76,7 @@ class Field(object):
     @property
     def default(self):
         d = self._default
-        if callable(d):
-            return d()
-        else:
-            return d
+        return d() if callable(d) else d
 
     def __str__(self):
         """返回实例对象的信息"""
@@ -79,7 +93,7 @@ class Field(object):
 class IntegerField(Field):
     """整数类型字段"""
     def __init__(self, **kw):
-        if 'default' not in kw:
+        if not 'default' in kw:
             kw['default'] = 0
         if 'ddl' not in kw:
             kw['ddl'] = 'bigint'
@@ -178,11 +192,11 @@ class ModelMetaClass(type):
                         raise TypeError("cannot define more than 1 priamry key in class: %s" %name)
                     #primary key cannot be updatable
                     if v.updatable:
-                        logging.warning("Note: change primary key to non_updatable")
+                        logging.warning("Note: change primary key %s to non_updatable" %v.name)
                         v.updatable = False
                     #primary key cannot be nullable
                     if v.nullable:
-                        logging.warning("Note: change priamry key to non_nullable")
+                        logging.warning("Note: change priamry key %s to non_nullable" %v.name)
                         v.nullable = False
                     primary_key = v
                 mappings[k] = v
@@ -197,10 +211,10 @@ class ModelMetaClass(type):
         #set table name by class name
         if not '__table__' in attrs:
             attrs['__table__'] = name.lower()
-
         attrs['__mappings__'] = mappings
         attrs['__primary_key__'] =primary_key
-        attrs['__sql__'] = lambda self : _gen_sql(attrs['__table__'], mappings)
+        #attrs['__sql__'] = lambda self : _gentable(attrs['__table__'], mappings)
+        attrs['__sql__'] = _gentable(attrs['__table__'], mappings)
         for trigger in _triggers:
             if not trigger in attrs:
                 attrs[trigger] = None
@@ -212,7 +226,7 @@ class Model(dict):
     需要动态扫描子类属性，从中取出类属性，完成 类->表的映射
     利用ModelMetaClass
     """
-    __metalcass__ = ModelMetaClass
+    __metaclass__ = ModelMetaClass
 
     def __init__(self, **kw):
         super(Model, self).__init__(**kw)
@@ -222,7 +236,7 @@ class Model(dict):
         try:
             return self[key]
         except KeyError:
-            raise AttributeError("Dict Object has no attribute %s" %key)
+            raise AttributeError('Dict Object has no attribute %s' %key)
 
     def __setattr__(self, key, value):
         """set时生效"""
@@ -231,13 +245,13 @@ class Model(dict):
     @classmethod
     def get(cls, pk):
         """get by primary_key"""
-        d = db.select_one('select * from %s where %s = ?' %(cls.__table__, cls.__primary_key__.name), pk)
+        d = db.selectone('select * from %s where %s = ?' %(cls.__table__, cls.__primary_key__.name), pk)
         return cls(**d) if d else None
 
     @classmethod
     def find_first(cls, where, *args):
         """通过where语句查询，返回一个查询结果。如果有多个结果，则返回一个第一个"""
-        d = db.select_one('select * from %s %s' %(cls.__table__, where),*args)
+        d = db.selectone('select * from %s %s' %(cls.__table__, where),*args)
         return cls(**d) if d else None
 
     @classmethod
@@ -263,7 +277,6 @@ class Model(dict):
     def count_by(cls, where, *args):
         return db.select_int('select count(`%s`) from %s %s' %(cls.__primary_key__.name,cls.__table__,where), *args)
 
-    @classmethod
     def update(self):
         """
         如果该行字段updatable，表示该字段可更新
@@ -280,7 +293,7 @@ class Model(dict):
         for k,v in self.__mappings__.iteritems():
             if v.updatable:
                 if hasattr(self,k):
-                     arg = getattr(self.k)
+                     arg = getattr(self,k)
                 else:
                     arg = v.default
                     setattr(self,k,arg)
@@ -291,37 +304,35 @@ class Model(dict):
         db.update('update `%s` set %s where %s = ?' %(self.__table__,','.join(L),pk),*args)
         return self
 
-@classmethod
-def delete(self):
-    """通过update接口执行sql
-    sql: delete from 'user' where `id` = %s, args:(1090,)
-    """
-    self.pre_delete and self.pre_delete()
-    pk = self.__primary_key__.name
-    args = (getattr(self,pk),)
-    db.update('delete from `%s` where `%s`= ?' %(self.__table__,pk), *args)
-    return self
+    def delete(self):
+        """通过update接口执行sql
+        sql: delete from 'user' where `id` = %s, args:(1090,)
+        """
+        self.pre_delete and self.pre_delete()
+        pk = self.__primary_key__.name
+        args = (getattr(self,pk),)
+        db.update('delete from `%s` where `%s`= ?' %(self.__table__,pk), *args)
+        return self
 
-@classmethod
-def insert(self):
-    """通过db的insert接口执行sql
-    sql: insert into `user` (`password`,`last_modified`,`id`,`name`) values (%s,%s,%s,%s)
-    args:('','','','')
-    """
-    self.pre_insert and self.pre_insert()
-    params = {}
-    for k,v in self.__mappings__.iteritems():
-        if v.insertable:
-            if not hasattr(k):
-                setattr(self,k,v.default)
-            params[v.name] = getattr(self,k)
-    db.insert(self.__table__,**params)
-    return self
+    def insert(self):
+        """通过db的insert接口执行sql
+        sql: insert into `user` (`password`,`last_modified`,`id`,`name`) values (%s,%s,%s,%s)
+        args:('','','','')
+        """
+        self.pre_insert and self.pre_insert()
+        params = {}
+        for k,v in self.__mappings__.iteritems():
+            if v.insertable:
+                if not hasattr(self,k):
+                    setattr(self,k,v.default)
+                params[v.name] = self[k]
+        db.insert(self.__table__,**params)
+        return self
 
+       
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
     db.create_engine('root', '', 'test')
     db.update('drop table if exists user')
-    db.update('create table user (id int primary key, name text, email text, passwd text, last_modified real)')
-    import doctest
-    doctest.testmod()
+    db.update('create table user (id int primary key, name text, email text, password text, admin bool, image text)')
+
