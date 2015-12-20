@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset='utf-8'/>
+	{%block meta %}<!-- block meta --> {% endblock %}
+	<title>{%block title %}? {% endblock %} -Awesome python webapp </title>
+
+	<link rel="stylesheet" type="text/css" href="/static/css/uikit.min.css">
+	<link rel="stylesheet" type="text/css" href="/static/css/uikit.gradient.min.css">
+	<link rel="stylesheet" type="text/css" href="/static/css/awesome.css">
+	<script src= "/static/js/jquery.min.js"></script>
+	{%block beforehead %}<!-- before head-->{% endblock %}
+</head>
+<body>
+	<nav class = "uk-navbar uk-nvbar-attached uk-margin-bottom">
+		<div class="uk-contaniner uk-container-center">
+			<a href="/" class='uk-navbar-brand'>Awesome</a>
+			<ul class="uk-navbar-nav">
+				<li data-url="blogs"><a href="/"><i class="uk-icon-home"></i>日志</a></li>
+				<!--a target="_blank" 表示浏览器在新打开的窗口中载入目标文档 -->
+				<li><a target="_blank" href="http://www.liaoxuefeng.com/wiki/001374738125095c955c1e6d8bb493182103fac9270762a000"><i class="uk-icon-book"></i>教程</a></li>
+				<li><a href="https://github.com/michaleliao/awesome-python-webapp" target="_blank"><i class="uk-icon-code"></i>源码</a></li>
+			</ul>
+			<div class="uk-navbar-flip">
+				<ul class= "uk-navbar-nv">
+				{% if user %}
+				    <li class= "uk-parent" data-uk-dropdown>
+				    <a href="#0"><i class="uk-icon-user"></i>{{user.name}}</a>
+				    <div class="uk-dropdown uk-dropdown-navbar">
+				    	<ul class="uk-nav uk-nav-navbar">
+				    		<li><a href="/signout"><i class="uk-icon-sign-out"></i>登出</a></li>
+				    	</ul>
+				    </div>
+				    </li>
+				{% else %}
+				    <li><a href="/signin"><i class="uk-icon-sign-in"></i>登录</a></li>
+				    <li><a href="/register"><i class="uk-icon-edit"></i>注册</a></li>
+				{% endif %}
+				</ul>
+			</div>
+		</div>
+	</nav>
+
+	<div class="uk-container uk-container-center">
+		<div class= "uk-grid">
+			<!-- content-->
+			{% block content %}
+			{% endblock %}
+		</div>
+	</div>
+
+	
+	<div class="uk-margin-large-top" style="background-color: #eee;border-top: 1px solid #ccc;">
+		<div class="uk-container uk-container-center uk-text-center">
+			<div class="uk-panel uk-margin-top uk-margin-bottom">
+				<p>
+					<a href="http://weibo.com/2429763980/profile?topnav=1&wvr=6&is_all=1" target="_blank" class="uk-icon-button uk-icon-weibo"></a>
+					<a href="https://github.com/roubao1994/awesome-python-webapp" target="_blank" class="uk-icon-button uk-icon-github"></a>
+				</p>
+				<p>Powered by <a href="http://aswsome.liaoxuefeng.com">Awesome Python Webapp</a>.copyright &copy; 2014.[<a href="/manage/" target="_blank">Manage</a>]</p>
+				<p><a href="http://www.liaoxuefeng.com/" target="_blank">www.liaoxuefeng.com</a>. All rights reserved.</p>
+				<a target="_blank" href="http://www.w3.org/TR/html5"><i class="uk-icon-html5" style="font-size: 64px;color: #444;"></i></a>
+			</div>
+		</div>
+	</div>
+</body>
+</html>

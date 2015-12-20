@@ -4,6 +4,7 @@
 import types, os, re, cgi, sys, time, datetime, functools, mimetypes, threading, logging, traceback, urllib
 from db import Dict
 
+
 try:
     from cStringIO import StringIO
 except ImportError:
@@ -120,6 +121,50 @@ _RESPONSE_HEADERS = (
     'X-UA-Compatible',
 )
 
+def _to_str(s):
+    '''
+    Convert to str.
+    >>> _to_str('s123') == 's123'
+    True
+    >>> _to_str(u'\u4e2d\u6587') == '\xe4\xb8\xad\xe6\x96\x87'
+    True
+    >>> _to_str(-123) == '-123'
+    True
+    '''
+    if isinstance(s, str):
+        return s
+    if isinstance(s, unicode):
+        return s.encode('utf-8')
+    return str(s)
+
+def _to_unicode(s, encoding='utf-8'):
+    '''
+    Convert to unicode.
+    >>> _to_unicode('\xe4\xb8\xad\xe6\x96\x87') == u'\u4e2d\u6587'
+    True
+    '''
+    return s.decode('utf-8')
+
+def _quote(s, encoding='utf-8'):
+    '''
+    Url quote as str.
+    >>> _quote('http://example/test?a=1+')
+    'http%3A//example/test%3Fa%3D1%2B'
+    >>> _quote(u'hello world!')
+    'hello%20world%21'
+    '''
+    if isinstance(s, unicode):
+        s = s.encode(encoding)
+    return urllib.quote(s)
+
+def _unquote(s, encoding='utf-8'):
+    '''
+    Url unquote as unicode.
+    >>> _unquote('http%3A//example/test%3Fa%3D1+')
+    u'http://example/test?a=1+'
+    '''
+    return urllib.unquote(s).decode(encoding)
+
 class _HttpError(Exception):
 	"""
 	异常处理
@@ -220,10 +265,10 @@ class Request(object):
 		"""
 		def _convert(item):
 			if isinstance(item, list):
-				return [utils.to_unicode(i.value) for i in item]
+				return [_to_unicode(i.value) for i in item]
 			if item.filename:
 				return MultiPartFile(item)
-			return utils.to_unicode(item)
+			return _to_unicode(item)
 		fs = cgi.FieldStorage(fp = self._environ['wsgi.input'], environ = self._environ, keep_blank_values = True)
 		inputs = dict()
 		for key in fs:
@@ -381,7 +426,7 @@ class Request(object):
 				for c in cookie_str.split(';'):
 					pos = c.find('=')
 					if pos > 0:
-						cookies[c[:pos].strip()] = utils.unquote[c[pos+1:]]
+						cookies[c[:pos].strip()] = _unquote[c[pos+1:]]
 			self._cookies = cookies
 		return self._cookies
 	
@@ -398,7 +443,7 @@ class Response(object):
 		key = name.upper()
 		if key not in _RESPONSE_HEADER_DICT:
 			key = name
-		self._headers[key] = utils.to_str(value)
+		self._headers[key] = _to_str(value)
 
 
 	def unset_header(self, name):
@@ -469,7 +514,7 @@ class Response(object):
 		"""
 		if not hasattr(self, '_cookies'):
 			self._cookies = {}
-		L = ['%s = %s' %(utils.quote(name),util.quote(value))]
+		L = ['%s = %s' %(_quote(name),_quote(value))]
 		if expires is not None:
 			if isinstance(expires, (int, float, long)):
 				L.append('Expires=%s' %datetime.datetime.fromtimestamp(expires,UTC_0).strftime('%a, %d-%b-%Y %H:%M:%S GMT'))
@@ -659,29 +704,31 @@ class Route(object):
 	__repr__ = __str__
 
 class StaticFileRoute(object):
-	"""静态文件路有对象"""
-	def __init__(self):
-		self.method = 'GET'
-		self.is_static = False
-		self.route = re.compile('^/static/(.+)$')
+    """
+    静态文件路由对象，和Route相对应
+    """
+    def __init__(self):
+        self.method = 'GET'
+        self.is_static = False
+        self.route = re.compile('^/static/(.+)$')
 
-	def match(self, url):
-		if url.startswith('/static/'):
-			return (url[1:],)
-		return None
+    def match(self, url):
+        if url.startswith('/static/'):
+            return (url[1:], )
+        return None
 
-	def __call__(self, *args):
-		fpath = os.path.join(ctx.application.document_root,args[0])
-		if not os.path.isfile(fpath):
-			raise HttpError.notfound()
-		fext = os.path.splittext(fpath)[1]
-		ctx.response.content_type = mimetypes.types_map.get(fext.lower(),'application/octet-stream')
-		return _static_file_generator(fpath)
+    def __call__(self, *args):
+        fpath = os.path.join(ctx.application.document_root, args[0])
+        if not os.path.isfile(fpath):
+            raise HttpError.notfound()
+        fext = os.path.splitext(fpath)[1]
+        ctx.response.content_type = mimetypes.types_map.get(fext.lower(), 'application/octet-stream')
+        return _static_file_generator(fpath)
 
 class MultiPartFile(object):
 	"""docstring for MultiPartFile"""
 	def __init__(self, storage):
-		self.filename = utils.to_unicode(storage.filename)
+		self.filename = _to_unicode(storage.filename)
 		self.file = storage.file
 		
 		
