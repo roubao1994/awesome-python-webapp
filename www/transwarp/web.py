@@ -1,14 +1,20 @@
 #!/usr/bin/env_python
 # -*- coding: utf-8 -*-
 
+import types, os, re, cgi, sys, time, datetime, functools, mimetypes, threading, logging, traceback, urllib
 from db import Dict
-import cgi
-import threading
-import datetime,time
+
+try:
+    from cStringIO import StringIO
+except ImportError:
+    from StringIO import StringIO
+
+
+ctx = threading.local()
 
 #正则表达式判断是否是正确的status code字符串
 _RE_RESPONSE_STATUS = re.compile(r'^\d\d\d(\ [\w\ ]+)?$')
-_HEADER_X_POWERED_BY = ['x-powered-by','transwarp/1.0']
+_HEADER_X_POWERED_BY = ('x-powered-by','transwarp/1.0')
 # response status
 _RESPONSE_STATUSES = {
     # Informational
@@ -142,29 +148,54 @@ class _HttpError(Exception):
 
 	__repr__ = __str__
 
+class _RedirectError(_HttpError):
+    """
+    RedirectError that defines http redirect code.
+    >>> e = _RedirectError(302, 'http://www.apple.com/')
+    >>> e.status
+    '302 Found'
+    >>> e.location
+    'http://www.apple.com/'
+    """
+    def __init__(self, code, location):
+        """
+        Init an HttpError with response code.
+        """
+        super(_RedirectError, self).__init__(code)
+        self.location = location
+
+    def __str__(self):
+        return '%s, %s' % (self.status, self.location)
+
+    __repr__ = __str__
+
+
+
 class HttpError(object):
 	"""http错误类"""
 	
-	@staticMethod
+	@staticmethod
 	def badrequest():
 		return _HttpError(400)
 
-	@staticMethod
+	@staticmethod
 	def unauthorized():
 		return _HttpError(401)
 
-	@staticMethod
+	@staticmethod
 	def forbidden():
 		return _HttpError(403)
 
-	@staticMethod
+	@staticmethod
 	def notfound():
 		return _HttpError(404)
 
-	@staticMethod
+	@staticmethod
 	def conflict():
 		return _HttpError(409)
-
+	@staticmethod
+	def redirect(location):
+		return _RedirectError(location)
 """
    map（lambda x : x.upper(), _RESPONSE_HEADERS) 是指将_RESPONSE_HEADERS中的每个值都变为大写
    这个dict返回的就是  大写--非大写之间的对应
@@ -380,7 +411,7 @@ class Response(object):
 
 	def header(self, name):
 		"""非大小写敏感地获取某个header值"""
-		key = name.upper()
+		key = name.upper() 
 		if key not in _RESPONSE_HEADER_DICT:
 			key = name
 		return self._headers.get(key)
@@ -680,7 +711,7 @@ class Jinjia2TemplateEngine(TemplateEngine):
 	def __init__(self, templ_dir, **kw):
 		from jinja2 import Environment,FileSystemLoader
 		if 'autoescape' not in kw:
-			kw[autoescape] = True
+			kw['autoescape'] = True
 		self._env = Environment(loader = FileSystemLoader(templ_dir), **kw)
 
 	def add_filter(self, name, fn_filter):
@@ -723,7 +754,7 @@ def view(path):
 		def _wrapper(*args, **kw):
 			r = func(*args, **kw)
 			if isinstance(r, dict):
-				loggin.info('return Template')
+				logging.info('return Template')
 				return Template(path, **r)
 			else:
 				raise ValueError('expect return a dict')
@@ -820,7 +851,7 @@ class WSGIApplication(object):
 	@template_engine.setter
 	def template_engine(self, engine):
 		self._check_not_running()
-		self.template_engine = engine
+		self._template_engine = engine
 
 
 	def add_module(self, mod):
@@ -860,7 +891,7 @@ class WSGIApplication(object):
 		启动python自带的wsgiserver
 		"""
 		from wsgiref.simple_server import make_server
-		logging.info('application (%s) will start at %s:%s...' %(self.document_root,host,port))
+		logging.info('application (%s) will start at %s:%s...' %(self._document_root,host,port))
 		server = make_server(host,port, self.get_wsgi_application(debug=True))
 		server.serve_forever()
 
@@ -901,41 +932,45 @@ class WSGIApplication(object):
 			ctx.application = _application
 			ctx.request = Request(env)
 			response = ctx.response = Response()
-
 			try:
-				r = fn_exec
+				r = fn_exec()
+				print r
 				if isinstance(r, Template):
-					r = self._template_engine(r.template_engine, r,model)
+					r = self._template_engine(r.template_name, r.model)
 				if isinstance(r, unicode):
 					r = r.encode('utf-8')
+				if isinstance(r, Template):
+					r = self._template_engine(r.template_name, r.model)
 				if r is None:
 					r = []
 				start_response(response.status, response.headers)
+				print response.headers
 				return r
 			except _RedirectError, e:
 				response.set_header('Location', e.location)
 				start_response(e.status, response.headers)
 				return []
-			except _HttpError,e:
+			except _HttpError, e:
 				start_response(e.status, response.headers)
 				return ['<html><body><h1>', e.status, '</h1></body></html>']
 			except Exception, e:
 				logging.exception(e)
-		    	if not debug:
-		    		start_response('500 Internal Server Error', [])
-		    		return ['<html><body><h1>500 Internal Server Error</h1></body></html>']
-		    	exc_type,exc_value,exc_traceback = sys.exc_info()
-		    	fp = StringIO()
-		    	traceback.print_exception(exc_type,exc_value,exc_traceback)
-		    	stacks = fp.getvalue()
-		    	fp.close()
-		    	start_response('500 Internal server error', [])
-		    	return [
-                    r'''<html><body><h1>500 Internal Server Error</h1><div style="font-family:Monaco, Menlo, Consolas, 'Courier New', monospace;"><pre>''',
-                    stacks.replace('<', '&lt;').replace('>', '&gt;'),
-                    '</pre></div></body></html>']
+				if not debug:
+					start_response('500 Internal Server Error', [])
+					return ['<html><body><h1>500 Internal Server Error</h1></body></html>']
+				exc_type, exc_value, exc_traceback = sys.exc_info()
+				fp = StringIO()
+				traceback.print_exception(exc_type, exc_value, exc_traceback, file=fp)
+				stacks = fp.getvalue()
+				fp.close()
+				start_response('500 Internal Server Error', [])
+				return [
+				    r'''<html><body><h1>500 Internal Server Error</h1><div style="font-family:Monaco, Menlo, Consolas, 'Courier New', monospace;"><pre>''',
+				    stacks.replace('<', '&lt;').replace('>', '&gt;'),
+				    '</pre></div></body></html>']
 			finally:
 				del ctx.application
-            	del ctx.request
-            	del ctx.response
-        return wsgi
+				del ctx.request
+				del ctx.response
+
+		return wsgi
