@@ -5,10 +5,16 @@
 	{%block meta %}<!-- block meta --> {% endblock %}
 	<title>{%block title %}? {% endblock %} -Awesome python webapp </title>
 
-	<link rel="stylesheet" type="text/css" href="/static/css/uikit.min.css">
-	<link rel="stylesheet" type="text/css" href="/static/css/uikit.gradient.min.css">
-	<link rel="stylesheet" type="text/css" href="/static/css/awesome.css">
-	<script src= "/static/js/jquery.min.js"></script>
+	<link rel="stylesheet" href="/static/css/uikit.min.css">
+    <link rel="stylesheet" href="/static/css/uikit.gradient.min.css">
+    <link rel="stylesheet" href="/static/css/awesome.css" />
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/md5.js"></script>
+    <script src="/static/js/uikit.min.js"></script>
+    <script src="/static/js/sticky.min.js"></script>
+    <script src="/static/js/vue.min.js"></script>
+    <script src="/static/js/awesome.js"></script>
+
 	{%block beforehead %}<!-- before head-->{% endblock %}
 </head>
 <body>
@@ -22,18 +28,18 @@
 				<li><a href="https://github.com/michaleliao/awesome-python-webapp" target="_blank"><i class="uk-icon-code"></i>源码</a></li>
 			</ul>
 			<div class="uk-navbar-flip">
-				<ul class= "uk-navbar-nv">
+				<ul class= "uk-navbar-nav">
 				{% if user %}
 				    <li class= "uk-parent" data-uk-dropdown>
-				    <a href="#0"><i class="uk-icon-user"></i>{{user.name}}</a>
-				    <div class="uk-dropdown uk-dropdown-navbar">
-				    	<ul class="uk-nav uk-nav-navbar">
-				    		<li><a href="/signout"><i class="uk-icon-sign-out"></i>登出</a></li>
-				    	</ul>
-				    </div>
+				    	<a href="#0"><i class="uk-icon-user"></i>{{user.name}}</a>
+				    	<div class="uk-dropdown uk-dropdown-navbar">
+				    		<ul class="uk-nav uk-nav-navbar">
+				    			<li><a href="/logout"><i class="uk-icon-sign-out"></i>登出</a></li>
+				    		</ul>
+				    	</div>
 				    </li>
 				{% else %}
-				    <li><a href="/signin"><i class="uk-icon-sign-in"></i>登录</a></li>
+				    <li><a href="/login"><i class="uk-icon-sign-in"></i>登录</a></li>
 				    <li><a href="/register"><i class="uk-icon-edit"></i>注册</a></li>
 				{% endif %}
 				</ul>

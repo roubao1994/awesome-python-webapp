@@ -16,6 +16,11 @@ ctx = threading.local()
 #正则表达式判断是否是正确的status code字符串
 _RE_RESPONSE_STATUS = re.compile(r'^\d\d\d(\ [\w\ ]+)?$')
 _HEADER_X_POWERED_BY = ('x-powered-by','transwarp/1.0')
+
+#  用于时区转换
+_TIMEDELTA_ZERO = datetime.timedelta(0)
+_RE_TZ = re.compile('^([\+\-])([0-9]{1,2})\:([0-9]{1,2})$')
+
 # response status
 _RESPONSE_STATUSES = {
     # Informational
@@ -120,6 +125,69 @@ _RESPONSE_HEADERS = (
     'X-Powered-By',
     'X-UA-Compatible',
 )
+
+class UTC(datetime.tzinfo):
+	"""
+	tzinfo 是一个基类，用于给datetime对象分配一个时区
+    使用方式是 把这个子类对象传递给datetime.tzinfo属性
+    传递方法有2种：
+        １.　初始化的时候传入
+            datetime(2009,2,17,19,10,2,tzinfo=tz0)
+        ２.　使用datetime对象的 replace方法传入，从新生成一个datetime对象
+            datetime.replace(tzinfo= tz0）
+    >>> tz0 = UTC('+00:00')
+    >>> tz0.tzname(None)
+    'UTC+00:00'
+    >>> tz8 = UTC('+8:00')
+    >>> tz8.tzname(None)
+    'UTC+8:00'
+    >>> tz7 = UTC('+7:30')
+    >>> tz7.tzname(None)
+    'UTC+7:30'
+    >>> tz5 = UTC('-05:30')
+    >>> tz5.tzname(None)
+    'UTC-05:30'
+    >>> from datetime import datetime
+    >>> u = datetime.utcnow().replace(tzinfo=tz0)
+    >>> l1 = u.astimezone(tz8)
+    >>> l2 = u.replace(tzinfo=tz8)
+    >>> d1 = u - l1
+    >>> d2 = u - l2
+    >>> d1.seconds
+    0
+    >>> d2.seconds
+    28800
+    """
+	def __init__(self, utc):
+		utc = str(utc.strip().upper())
+		mt = _RE_TZ.match(utc)
+		if mt:
+			minus = mt.group(1) == '-'
+			h = int(mt.group(2))
+			m = int(mt.group(3))
+			if minus:
+				h,m = (-h), (-m)
+			self._utcoffset = datetime.timedelta(hours = h, minutes = m)
+			self._tzname = "UTC%s" %utc
+		else:
+			raise ValueError('bad utc time zone')
+
+	def utcoffset(self, dt):
+		return self._utcoffset
+
+	def dst(self, dt):
+		return _TIMEDELTA_ZERO
+
+	def tzname(self, dt):
+		return self._tzname
+
+	def __str__(self):
+		return 'UTC timezone object (%s)' %self._tzname
+
+	__repr__ = __str__
+
+
+
 
 def _to_str(s):
     '''
@@ -240,7 +308,12 @@ class HttpError(object):
 		return _HttpError(409)
 	@staticmethod
 	def redirect(location):
-		return _RedirectError(location)
+		return _RedirectError(302,location)
+
+	@staticmethod
+	def seeother(location):
+		return _RedirectError(303,location)
+
 """
    map（lambda x : x.upper(), _RESPONSE_HEADERS) 是指将_RESPONSE_HEADERS中的每个值都变为大写
    这个dict返回的就是  大写--非大写之间的对应
@@ -257,20 +330,15 @@ class Request(object):
 		self._environ = environ
 
 	def _parse_input(self):
-		"""
-		将environ中的参数解析成一个字典对象
-		 将通过wsgi 传入过来的参数，解析成一个字典对象 返回
-        比如： Request({'REQUEST_METHOD':'POST', 'wsgi.input':StringIO('a=1&b=M%20M&c=ABC&c=XYZ&e=')})
-            这里解析的就是 wsgi.input 对象里面的字节流
-		"""
 		def _convert(item):
 			if isinstance(item, list):
 				return [_to_unicode(i.value) for i in item]
 			if item.filename:
-				return MultiPartFile(item)
-			return _to_unicode(item)
-		fs = cgi.FieldStorage(fp = self._environ['wsgi.input'], environ = self._environ, keep_blank_values = True)
+				return MultipartFile(item)
+			return _to_unicode(item.value)
+		fs = cgi.FieldStorage(fp=self._environ['wsgi.input'], environ=self._environ, keep_blank_values=True)
 		inputs = dict()
+		logging.debug(fs)
 		for key in fs:
 			inputs[key] = _convert(fs[key])
 		return inputs
@@ -426,11 +494,11 @@ class Request(object):
 				for c in cookie_str.split(';'):
 					pos = c.find('=')
 					if pos > 0:
-						cookies[c[:pos].strip()] = _unquote[c[pos+1:]]
+						cookies[c[:pos].strip()] = _unquote(c[pos+1:])
 			self._cookies = cookies
 		return self._cookies
 	
-
+UTC_0 = UTC('+00:00')
 
 class Response(object):
 	"""请求对象"""
@@ -730,12 +798,6 @@ class MultiPartFile(object):
 	def __init__(self, storage):
 		self.filename = _to_unicode(storage.filename)
 		self.file = storage.file
-		
-		
-
-#定义拦截器
-def interceptor(pattern):
-	pass
 
 ###############
 #实现视图功能
@@ -819,7 +881,7 @@ def _build_pattern_fn(pattern):
 	返回一个函数
 	该函数接受一个字符串，检测该字符串是否符合pattern
 	"""
-	m = _RE_INTERCEPTOR_STARTS_WITH(pattern)
+	m = _RE_INTERCEPTOR_STARTS_WITH.match(pattern)
 	if m:
 		return lambda p : p.startswith(m.group(1))
 	m = _RE_INTERCEPTOR_ENDS_WITH(pattern)
@@ -962,7 +1024,7 @@ class WSGIApplication(object):
 					if args:
 						return fn(*args)
 				raise HttpError.notfound()
-			if request.method == 'POST':
+			if request_method == 'POST':
 				fn = self._post_static.get(path_info,None)
 				if fn:
 					return fn()
@@ -981,7 +1043,6 @@ class WSGIApplication(object):
 			response = ctx.response = Response()
 			try:
 				r = fn_exec()
-				print r
 				if isinstance(r, Template):
 					r = self._template_engine(r.template_name, r.model)
 				if isinstance(r, unicode):
@@ -991,7 +1052,6 @@ class WSGIApplication(object):
 				if r is None:
 					r = []
 				start_response(response.status, response.headers)
-				print response.headers
 				return r
 			except _RedirectError, e:
 				response.set_header('Location', e.location)
